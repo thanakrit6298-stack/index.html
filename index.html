@@ -9,6 +9,7 @@
 <!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 
 :root{
@@ -818,6 +819,67 @@ body::before{content:'';position:fixed;inset:0;background-image:radial-gradient(
   .wk-review-img{width:90px}
   .wk-cond-btn{min-width:60px;font-size:11px}
 }
+
+/* ── Unit rows (main tool list) ── */
+.tool-units-section{margin-top:6px}
+.units-toggle{
+  display:flex;align-items:center;gap:8px;width:100%;
+  padding:6px 9px;background:var(--surface2);border:1px solid var(--border);
+  border-radius:var(--r);color:var(--text-mid);font-size:11px;cursor:pointer;
+  transition:all .15s;text-align:left;
+}
+.units-toggle:hover{background:var(--surface3);color:var(--text-hi)}
+.units-toggle span:first-child{font-family:var(--font-mono);font-size:10px;letter-spacing:.5px}
+.units-chev{margin-left:auto;font-size:10px;transition:transform .2s}
+.units-list{display:none;border:1px solid var(--border);border-top:none;border-radius:0 0 var(--r) var(--r);overflow:hidden}
+.unit-row{
+  display:flex;align-items:center;gap:7px;padding:7px 10px;
+  border-bottom:1px solid var(--border);background:var(--surface);
+}
+.unit-row:last-child{border-bottom:none}
+.unit-lbl{font-family:var(--font-mono);font-size:10px;color:var(--text-lo);min-width:52px;flex-shrink:0}
+.unit-cond{
+  padding:3px 8px;border:1px solid var(--border2);border-radius:2px;
+  background:transparent;color:var(--text-lo);font-size:11px;cursor:pointer;transition:all .15s;
+}
+.unit-cond:hover{border-color:var(--border2);color:var(--text-mid)}
+.unit-cond.uc-ok  {background:var(--green-dim);border-color:rgba(31,158,85,.4);color:var(--green-mid);font-weight:500}
+.unit-cond.uc-warn{background:var(--yellow-dim);border-color:rgba(196,154,20,.4);color:var(--yellow-mid);font-weight:500}
+.unit-cond.uc-bad {background:var(--red-dim);border-color:rgba(192,40,42,.4);color:var(--red-mid);font-weight:500}
+.unit-status-pub{font-size:11px;color:var(--text-mid)}
+.unit-status-pub.ok  {color:var(--green-mid)}
+.unit-status-pub.warn{color:var(--yellow-mid)}
+.unit-status-pub.bad {color:var(--red-mid)}
+
+/* ── Unit rows (weekly check) ── */
+.wk-units-section{display:flex;flex-direction:column;gap:0;border:1px solid var(--border2);border-radius:var(--r);overflow:hidden}
+.wk-unit-row{
+  display:flex;align-items:center;gap:8px;padding:8px 12px;
+  border-bottom:1px solid var(--border);background:var(--surface2);
+}
+.wk-unit-row:last-child{border-bottom:none}
+.wk-unit-lbl{font-family:var(--font-mono);font-size:10px;color:var(--text-mid);min-width:52px;flex-shrink:0;letter-spacing:.5px}
+.wk-unit-cond{
+  flex:1;padding:5px 4px;border:1px solid var(--border);border-radius:2px;
+  background:var(--surface3);color:var(--text-lo);font-size:11px;cursor:pointer;transition:all .15s;text-align:center;
+}
+.wk-unit-cond:hover{border-color:var(--border2);color:var(--text-hi)}
+.wk-unit-cond.wku-ok  {background:var(--green-dim);border-color:rgba(31,158,85,.4);color:var(--green-mid);font-weight:600}
+.wk-unit-cond.wku-warn{background:var(--yellow-dim);border-color:rgba(196,154,20,.4);color:var(--yellow-mid);font-weight:600}
+.wk-unit-cond.wku-bad {background:var(--red-dim);border-color:rgba(192,40,42,.4);color:var(--red-mid);font-weight:600}
+@media(max-width:768px){
+  .wk-unit-cond{font-size:11px;padding:6px 2px}
+  .unit-cond{padding:4px 7px}
+}
+
+/* ── Export button in tabs ── */
+.wk-tabs{flex-wrap:wrap}
+@media(max-width:768px){
+  .wk-tabs > div[style*='margin-left:auto']{
+    width:100%;display:flex;gap:6px;margin-top:6px;margin-left:0!important;
+  }
+  .wk-tabs > div[style*='margin-left:auto'] .wk-tab{flex:1;text-align:center;font-size:10px}
+}
 </style>
 </head>
 <body>
@@ -1163,10 +1225,16 @@ function init(){
 }
 
 function normT(t){
+  const qty=parseInt(t.qty);
+  const unitCount=(!isNaN(qty)&&qty>0)?qty:0;
+  const fbUnits=t.units&&!Array.isArray(t.units)?t.units:{};
+  const units={};
+  for(let i=1;i<=unitCount;i++) units[i]=(fbUnits[i]||{status:'none',note:''});
   return{
     ...t,
     checks:t.checks?(Array.isArray(t.checks)?t.checks:Object.values(t.checks)):[0,0,0],
     notes: t.notes||'', resp:t.resp||'', image:t.image||null,
+    units: unitCount>0?units:null,
   };
 }
 function hideLd(){ const el=document.getElementById('loading-screen'); if(el) el.style.display='none'; }
@@ -1339,6 +1407,34 @@ function rowHTML(t){
         ${rptBadge}
       </div>
       <div class="row-spec">${spec}</div>
+      ${(()=>{
+        if(!t.units) return '';
+        const entries=Object.entries(t.units);
+        if(!entries.length) return '';
+        const sMap={ok:'✅',warn:'⚠',bad:'❌',none:'—'};
+        const okC=entries.filter(([,u])=>u.status==='ok').length;
+        const warnC=entries.filter(([,u])=>u.status==='warn').length;
+        const badC=entries.filter(([,u])=>u.status==='bad').length;
+        const noneC=entries.filter(([,u])=>u.status==='none').length;
+        const sumTag=`<span style="font-family:var(--font-mono);font-size:9px;color:var(--text-lo)">${entries.length} ตัว${okC?` · ✅${okC}`:''}${warnC?` · ⚠${warnC}`:''}${badC?` · ❌${badC}`:''}${noneC?` · —${noneC}`:''}</span>`;
+        const rows=entries.map(([n,u])=>{
+          if(isAdmin) return `<div class="unit-row">
+            <span class="unit-lbl">ตัวที่ ${n}</span>
+            <button id="ubtn-${t.id}-${n}-ok"   class="unit-cond${u.status==='ok'?' uc-ok':''}"   onclick="setUnitStatus(${t.id},${n},'ok')">✅</button>
+            <button id="ubtn-${t.id}-${n}-warn" class="unit-cond${u.status==='warn'?' uc-warn':''}" onclick="setUnitStatus(${t.id},${n},'warn')">⚠</button>
+            <button id="ubtn-${t.id}-${n}-bad"  class="unit-cond${u.status==='bad'?' uc-bad':''}"  onclick="setUnitStatus(${t.id},${n},'bad')">❌</button>
+            ${u.note?`<span style="font-size:11px;color:var(--text-lo);font-style:italic;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${esc(u.note)}</span>`:''}
+          </div>`;
+          const condTxt={ok:'✅ ปกติ',warn:'⚠ พอใช้',bad:'❌ ชำรุด',none:'— ยังไม่ระบุ'}[u.status]||'—';
+          return `<div class="unit-row"><span class="unit-lbl">ตัวที่ ${n}</span><span class="unit-status-pub ${u.status}">${condTxt}</span></div>`;
+        }).join('');
+        return `<div class="tool-units-section">
+          <button class="units-toggle" onclick="toggleUnits(${t.id})">
+            <span>📦 รายชิ้น</span>${sumTag}<span class="units-chev" id="uchev-${t.id}">▼</span>
+          </button>
+          <div class="units-list" id="ulist-${t.id}">${rows}</div>
+        </div>`;
+      })()}
       ${notesHtml}
       <div class="row-bottom">
         <div class="qty-strip">
@@ -1731,9 +1827,13 @@ function getWeekKey(d = new Date()){
 }
 function getMondayOfWeek(wk){
   const [yr,wn]=wk.split('-W').map(Number);
-  const jan1=new Date(yr,0,1);
-  const toMon=(8-jan1.getDay())%7||7;
-  const mon=new Date(yr,0,1+toMon+(wn-1)*7);
+  // Jan 4 is always in ISO week 1
+  const jan4=new Date(yr,0,4);
+  const dow=(jan4.getDay()||7);
+  const w1mon=new Date(jan4);
+  w1mon.setDate(jan4.getDate()-dow+1);
+  const mon=new Date(w1mon);
+  mon.setDate(w1mon.getDate()+(wn-1)*7);
   return mon;
 }
 function getFridayOfWeek(wk){
@@ -1821,6 +1921,10 @@ function renderWeeklyPage(){
       <button class="wk-tab${wkTab==='review'?' active':''}" onclick="setWkTab('review')">ตรวจสอบ (${done})</button>
       <button class="wk-tab${wkTab==='miss'?' active':''}" onclick="setWkTab('miss')">ยังไม่ส่ง (${total-done})</button>
       <button class="wk-tab${wkTab==='history'?' active':''}" onclick="setWkTab('history')">ประวัติย้อนหลัง</button>
+      <div style="margin-left:auto;display:flex;gap:6px">
+        <button class="wk-tab" style="border-color:rgba(31,158,85,.4);color:var(--green-mid)" onclick="exportWeeklyExcel('${wk}')">⬇ Excel สัปดาห์นี้</button>
+        <button class="wk-tab" style="border-color:rgba(56,120,200,.4);color:var(--blue-mid)"  onclick="exportWeeklyExcel('all')">⬇ Excel ทั้งหมด</button>
+      </div>
     </div>`
   :`<div class="wk-tabs">
       <button class="wk-tab active">ส่งรูปประจำสัปดาห์</button>
@@ -1906,20 +2010,31 @@ function renderPublicSubmit(sub,wk){
       </div>
       <div class="wk-card-body${expanded?' open':''}">
         ${canEdit?`
-        <div class="wk-img-zone" onclick="trigWkImg(${t.id})">
-          ${imgSrc?`<img src="${imgSrc}" alt="">`:`<div class="wk-img-ph"><div class="wk-img-ph-ico">📷</div><div>แตะเพื่อถ่ายรูปหรือเลือกจากคลัง</div></div>`}
-          <div class="wk-img-overlay">📷 ${imgSrc?'เปลี่ยนรูป':'อัพโหลดรูป'}</div>
+        <div class="wk-img-zone" id="wkimgzone-${t.id}" onclick="trigWkImg(${t.id})">
+          ${imgSrc?`<img src="${imgSrc}" alt="" style="width:100%;height:100%;object-fit:cover">`:`<div class="wk-img-ph"><div class="wk-img-ph-ico">📷</div><div>แตะเพื่อถ่ายรูปหมู่ (ทุกตัวในภาพเดียว)</div></div>`}
+          <div class="wk-img-overlay">📷 ${imgSrc?'เปลี่ยนรูป':'ถ่ายรูปหมู่'}</div>
           <input type="file" class="wk-img-input" id="wkfi-${t.id}" accept="image/*" capture="environment" onchange="onWkImg(event,${t.id})">
         </div>
-        <div>
-          <div style="font-size:11px;color:var(--text-lo);font-family:var(--font-mono);margin-bottom:6px;letter-spacing:1px">ประเมินสภาพ</div>
-          <div class="wk-cond-group">
-            <button class="wk-cond-btn${cond==='ok'?' sel-ok':''}" onclick="setWkCond(${t.id},'ok')">✅ ปกติ</button>
-            <button class="wk-cond-btn${cond==='warn'?' sel-warn':''}" onclick="setWkCond(${t.id},'warn')">⚠ พอใช้</button>
-            <button class="wk-cond-btn${cond==='bad'?' sel-bad':''}" onclick="setWkCond(${t.id},'bad')">❌ ชำรุด</button>
-          </div>
+        <div class="wk-units-section">
+          <div style="font-size:11px;color:var(--orange-mid);font-family:var(--font-mono);margin-bottom:8px;letter-spacing:1px">ประเมินสภาพ รายชิ้น</div>
+          ${(()=>{
+            const qty=parseInt(t.qty);
+            const unitCount=isNaN(qty)?1:Math.max(1,qty);
+            const draftUnits=(wkDrafts[t.id]?.units)||{};
+            let rows='';
+            for(let i=1;i<=unitCount;i++){
+              const uc=draftUnits[i]||'';
+              rows+=`<div class="wk-unit-row">
+                <span class="wk-unit-lbl">ตัวที่ ${i}</span>
+                <button id="wkub-${t.id}-${i}-ok"   class="wk-unit-cond${uc==='ok'?' wku-ok':''}"   onclick="setWkUnitCond(${t.id},${i},'ok')">✅ ปกติ</button>
+                <button id="wkub-${t.id}-${i}-warn" class="wk-unit-cond${uc==='warn'?' wku-warn':''}" onclick="setWkUnitCond(${t.id},${i},'warn')">⚠ พอใช้</button>
+                <button id="wkub-${t.id}-${i}-bad"  class="wk-unit-cond${uc==='bad'?' wku-bad':''}"  onclick="setWkUnitCond(${t.id},${i},'bad')">❌ ชำรุด</button>
+              </div>`;
+            }
+            return rows;
+          })()}
         </div>
-        <textarea class="wk-note-input" placeholder="หมายเหตุเพิ่มเติม เช่น เสียงผิดปกติ รอยขีดข่วน ฯลฯ" oninput="setWkNote(${t.id},this.value)">${esc(note)}</textarea>`
+        <textarea class="wk-note-input" placeholder="หมายเหตุเพิ่มเติม เช่น ตัวที่ 3 มีเสียงผิดปกติ ฯลฯ" oninput="setWkNote(${t.id},this.value)">${esc(note)}</textarea>`
         :`<div style="font-size:13px;color:var(--green-mid);padding:8px;text-align:center">✓ ส่งรูปเรียบร้อยแล้ว — ขอบคุณครับ!</div>
          ${existing.image?`<img src="${existing.image}" style="width:100%;border-radius:var(--r);max-height:180px;object-fit:cover">`:''}
          ${existing.note?`<div style="font-size:12px;color:var(--text-mid);font-style:italic;padding:6px 8px;background:var(--surface2);border-radius:var(--r)">${esc(existing.note)}</div>`:''}
@@ -1974,6 +2089,9 @@ function renderAdminReview(sub,wk){
           <span class="wk-tag ${cond.cls}" style="margin-left:auto">${cond.txt}</span>
         </div>
         ${data.note?`<div class="wk-review-issue">"${esc(data.note)}"</div>`:''}
+      ${data.units?`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px">${
+        Object.entries(data.units).map(([n,c])=>`<span style="font-size:10px;padding:1px 7px;border-radius:2px;background:${c==='ok'?'var(--green-dim)':c==='warn'?'var(--yellow-dim)':'var(--red-dim)'};color:${c==='ok'?'var(--green-mid)':c==='warn'?'var(--yellow-mid)':'var(--red-mid)'};border:1px solid rgba(0,0,0,.1);font-family:var(--font-mono)">ตัวที่ ${n} ${c==='ok'?'✓':c==='warn'?'⚠':'✕'}</span>`).join('')
+      }</div>`:''}
         <div class="wk-review-actions">
           <button class="wk-action-btn approve" onclick="approveWk('${wk}',${toolId})">✓ อนุมัติ</button>
           <button class="wk-action-btn redo"    onclick="redoWk('${wk}',${toolId})">↺ ขอถ่ายใหม่</button>
@@ -2022,6 +2140,9 @@ function renderAdminHistory(){
             </div>
             <div class="wk-review-meta">โดย ${esc(data.submittedBy)} · ${new Date(data.submittedAt).toLocaleDateString('th-TH')}</div>
             ${data.note?`<div class="wk-review-issue">"${esc(data.note)}"</div>`:''}
+      ${data.units?`<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px">${
+        Object.entries(data.units).map(([n,c])=>`<span style="font-size:10px;padding:1px 7px;border-radius:2px;background:${c==='ok'?'var(--green-dim)':c==='warn'?'var(--yellow-dim)':'var(--red-dim)'};color:${c==='ok'?'var(--green-mid)':c==='warn'?'var(--yellow-mid)':'var(--red-mid)'};border:1px solid rgba(0,0,0,.1);font-family:var(--font-mono)">ตัวที่ ${n} ${c==='ok'?'✓':c==='warn'?'⚠':'✕'}</span>`).join('')
+      }</div>`:''}
           </div>
         </div>`;
       }).join('')
@@ -2056,32 +2177,47 @@ function toggleWkCard(id){
 function trigWkImg(id){ document.getElementById(`wkfi-${id}`)?.click(); }
 async function onWkImg(e,id){
   const file=e.target.files[0]; if(!file) return;
+  toast('กำลังบีบอัดรูป...','warn');
   const b64=await compressImage(file,800,800,0.75);
-  if(!wkDrafts[id]) wkDrafts[id]={condition:'',note:''};
+  if(!wkDrafts[id]) wkDrafts[id]={units:{},note:''};
   wkDrafts[id].image=b64;
-  renderWeeklyPage();
   wkExpandedCards[id]=true;
+  // Update only the image zone — don't re-render whole page
+  const zone=document.getElementById(`wkimgzone-${id}`);
+  if(zone){
+    zone.innerHTML=`<img src="${b64}" alt="" style="width:100%;height:100%;object-fit:cover">
+    <div class="wk-img-overlay">📷 เปลี่ยนรูป</div>
+    <input type="file" class="wk-img-input" id="wkfi-${id}" accept="image/*" capture="environment" onchange="onWkImg(event,${id})">`;
+  }
+  updateSubmitBtn();
+  toast('อัพโหลดรูปภาพสำเร็จ');
 }
-function setWkCond(id,cond){
-  if(!wkDrafts[id]) wkDrafts[id]={image:null,note:''};
-  wkDrafts[id].condition=cond;
-  // update just the buttons without full re-render
-  const btns=document.querySelectorAll(`#wkcard-${id} .wk-cond-btn`);
-  const clsMap={ok:'sel-ok',warn:'sel-warn',bad:'sel-bad'};
-  btns.forEach(b=>{
-    Object.values(clsMap).forEach(c=>b.classList.remove(c));
-    if(b.textContent.includes(cond==='ok'?'ปกติ':cond==='warn'?'พอใช้':'ชำรุด')) b.classList.add(clsMap[cond]);
+function setWkUnitCond(toolId,unitNum,cond){
+  if(!wkDrafts[toolId]) wkDrafts[toolId]={image:null,units:{},note:''};
+  if(!wkDrafts[toolId].units) wkDrafts[toolId].units={};
+  wkDrafts[toolId].units[unitNum]=cond;
+  // update buttons without re-render
+  ['ok','warn','bad'].forEach(s=>{
+    const btn=document.getElementById(`wkub-${toolId}-${unitNum}-${s}`);
+    if(btn){ btn.classList.toggle(`wku-${s}`,s===cond); }
   });
-  // update submit button
   updateSubmitBtn();
 }
 function setWkNote(id,val){
-  if(!wkDrafts[id]) wkDrafts[id]={image:null,condition:''};
+  if(!wkDrafts[id]) wkDrafts[id]={image:null,units:{},note:''};
   wkDrafts[id].note=val;
 }
 function updateSubmitBtn(){
   const myTools=wkPubName?tools.filter(t=>t.resp&&t.resp.trim()===wkPubName):[];
-  const allFilled=myTools.length>0&&myTools.every(t=>wkDrafts[t.id]?.image&&wkDrafts[t.id]?.condition);
+  const allFilled=myTools.length>0&&myTools.every(t=>{
+    const d=wkDrafts[t.id]; if(!d?.image) return false;
+    const qty=parseInt(t.qty);
+    const unitCount=isNaN(qty)?1:Math.max(1,qty);
+    for(let i=1;i<=unitCount;i++){
+      if(!d.units?.[i]) return false;
+    }
+    return true;
+  });
   const btn=document.querySelector('.btn-wk-submit');
   if(btn) btn.disabled=!allFilled;
 }
@@ -2094,11 +2230,15 @@ async function submitAllWk(wk){
   const now=new Date().toISOString();
   myTools.forEach(t=>{
     const d=wkDrafts[t.id];
+    // compute overall condition from units (worst case)
+    const unitVals=Object.values(d.units||{});
+    const overall=unitVals.includes('bad')?'bad':unitVals.includes('warn')?'warn':unitVals.length?'ok':'none';
     updates[`fab/weekly/${wk}/${t.id}`]={
       submittedBy: wkPubName,
       submittedAt: now,
       image: d.image,
-      condition: d.condition,
+      units: d.units||{},
+      condition: overall,
       note: d.note||'',
       status: 'pending',
     };
@@ -2114,6 +2254,143 @@ async function approveWk(wk,toolId){
 async function redoWk(wk,toolId){
   await WEEKLY_REF.child(`${wk}/${toolId}/status`).set('redo');
   toast('แจ้งให้ถ่ายใหม่แล้ว','warn');
+}
+
+
+/* ════════════════════════════════════════════
+   EXPORT TO EXCEL
+════════════════════════════════════════════ */
+function exportWeeklyExcel(mode){
+  if(!window.XLSX){ toast('กำลังโหลด XLSX library...','warn'); return; }
+  const wb = window.XLSX.utils.book_new();
+
+  // Determine which weeks to export
+  const allWeekKeys = Object.keys(weeklyAllData).sort().reverse();
+  const weekKeys = mode==='all' ? allWeekKeys : [getWeekKey()];
+
+  if(!weekKeys.length && mode==='all'){
+    toast('ยังไม่มีข้อมูลเช็คอิน','warn'); return;
+  }
+
+  // ── Sheet 1: รายงานรายสัปดาห์ ────────────────────────
+  const condTH={ok:'ปกติ',warn:'พอใช้',bad:'ชำรุด'};
+  const rows=[];
+
+  // Header row
+  rows.push([
+    'สัปดาห์','รหัสอุปกรณ์','ชื่ออุปกรณ์','หมวดหมู่',
+    'ผู้รับผิดชอบ','ผู้ที่ส่งรูป','สถานะการตรวจ',
+    'สภาพโดยรวม','รายละเอียดรายชิ้น',
+    'วันที่/เวลาที่ส่ง','หมายเหตุ','สถานะ Admin'
+  ]);
+
+  const toolsWithResp = tools.filter(t=>t.resp&&t.resp.trim());
+
+  weekKeys.forEach(wk=>{
+    const wkLabel = getWeekLabel(wk);
+    const sub = weeklyAllData[wk]||{};
+
+    toolsWithResp.forEach(t=>{
+      const data = sub[t.id];
+      const catName = CATS.find(c=>c.id===t.cat)?.label||t.cat;
+
+      if(data){
+        // Submitted
+        const unitDetails = data.units
+          ? Object.entries(data.units)
+              .sort((a,b)=>parseInt(a[0])-parseInt(b[0]))
+              .map(([n,c])=>`ตัวที่${n}: ${condTH[c]||c}`)
+              .join(' | ')
+          : '-';
+        const dt = new Date(data.submittedAt);
+        const dtStr = `${dt.toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit',year:'2-digit'})} ${dt.toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})}`;
+        const stMap={approved:'อนุมัติแล้ว',redo:'ขอถ่ายใหม่',pending:'รอตรวจสอบ'};
+
+        rows.push([
+          wkLabel, t.seq, t.name, catName,
+          t.resp||'-', data.submittedBy||'-',
+          '✅ ตรวจแล้ว',
+          condTH[data.condition]||'-',
+          unitDetails, dtStr,
+          data.note||'-',
+          stMap[data.status]||'รอตรวจสอบ'
+        ]);
+      } else {
+        // Not submitted
+        rows.push([
+          wkLabel, t.seq, t.name, catName,
+          t.resp||'-', '-',
+          '❌ ไม่ได้ตรวจ',
+          '-','-','-','-','-'
+        ]);
+      }
+    });
+
+    // Blank row between weeks
+    rows.push(new Array(12).fill(''));
+  });
+
+  const ws1 = window.XLSX.utils.aoa_to_sheet(rows);
+
+  // Column widths
+  ws1['!cols']=[
+    {wch:26},{wch:8},{wch:32},{wch:14},
+    {wch:16},{wch:16},{wch:16},
+    {wch:12},{wch:40},
+    {wch:18},{wch:28},{wch:14}
+  ];
+
+  // Freeze first row
+  ws1['!freeze'] = {xSplit:0, ySplit:1};
+
+  window.XLSX.utils.book_append_sheet(wb, ws1, 'รายงานเช็คอิน');
+
+  // ── Sheet 2: สรุปรายอุปกรณ์ ───────────────────────────
+  const sum=[];
+  sum.push(['รหัส','ชื่ออุปกรณ์','ผู้รับผิดชอบ',
+    ...weekKeys.map(w=>getWeekLabel(w))
+  ]);
+
+  toolsWithResp.forEach(t=>{
+    const row=[t.seq, t.name, t.resp||'-'];
+    weekKeys.forEach(wk=>{
+      const d=(weeklyAllData[wk]||{})[t.id];
+      row.push(d ? `✅ ${condTH[d.condition]||'-'}` : '❌');
+    });
+    sum.push(row);
+  });
+
+  const ws2 = window.XLSX.utils.aoa_to_sheet(sum);
+  ws2['!cols']=[{wch:8},{wch:32},{wch:16},...weekKeys.map(()=>({wch:18}))];
+  window.XLSX.utils.book_append_sheet(wb, ws2, 'ตารางสรุป');
+
+  // ── Export ───────────────────────────────────────────
+  const fname = mode==='all'
+    ? `Workshop_WeeklyCheck_ทั้งหมด.xlsx`
+    : `Workshop_WeeklyCheck_${getWeekLabel(getWeekKey())}.xlsx`;
+  window.XLSX.writeFile(wb, fname);
+  toast(`Export Excel สำเร็จ — ${fname.substring(0,40)}`);
+}
+
+/* ────── Unit status in main tool list ────── */
+function toggleUnits(id){
+  const list=document.getElementById(`ulist-${id}`);
+  const chev=document.getElementById(`uchev-${id}`);
+  if(!list) return;
+  const open=list.style.display!=='none'&&list.style.display!=='';
+  list.style.display=open?'none':'block';
+  if(chev) chev.textContent=open?'▼':'▲';
+}
+function setUnitStatus(toolId,unitNum,status){
+  if(!isAdmin) return;
+  const t=tools.find(x=>x.id===toolId); if(!t||!t.units) return;
+  if(!t.units[unitNum]) t.units[unitNum]={status:'none',note:''};
+  t.units[unitNum].status=status;
+  TOOLS_REF.child(`${toolId}/units/${unitNum}/status`).set(status);
+  ['ok','warn','bad'].forEach(s=>{
+    const btn=document.getElementById(`ubtn-${toolId}-${unitNum}-${s}`);
+    if(btn) btn.classList.toggle(`uc-${s}`,s===status);
+  });
 }
 
 /* ════ START ════ */
